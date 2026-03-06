@@ -1,0 +1,11 @@
+Q: What courses are offered?
+A: Our college offers B.Tech, M.Tech, MBA and BBA programs.
+
+Q: What are the library timings?
+A: The library is open from 9 AM to 8 PM Monday to Saturday.
+
+Q: Is hostel available?
+A: Yes, separate hostels are available for boys and girls.
+
+Q: What is the admission process?
+A: Admissions are based on entrance exams and merit.
