@@ -8,8 +8,13 @@ from sentence_transformers import SentenceTransformer
 # Load environment variables
 load_dotenv()
 
+# Get API key
+api_key = os.getenv("GROQ_API_KEY")
+if not api_key:
+    raise ValueError("GROQ_API_KEY not found in environment variables. Please set it in your .env file or deployment environment.")
+
 # Initialize Groq client
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+client = Groq(api_key=api_key)
 
 # Load embedding model
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -38,9 +43,9 @@ def ask_question(query):
 
     # Create prompt
     prompt = f"""
-You are an AI assistant for BMS College of Engineering.
+You are an AI assistant for BMS College of Engineering (BMSCE).
 
-Use the provided context if relevant to answer the question.
+Use the provided context if relevant to answer the question. Always refer to the institution as "BMS College of Engineering" or "BMSCE" - never as Bangalore Medical College or any other institution.
 
 Context:
 {context}
@@ -48,16 +53,21 @@ Context:
 Question:
 {query}
 
-Answer clearly for a student.
+Answer clearly for a student, ensuring all references to the college are accurate.
 """
 
     # Call Groq API
-    response = client.chat.completions.create(
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
-        model="llama-3.1-8b-instant"
-    )
-
-    # Return AI response
-    return response.choices[0].message.content
+    try:
+        response = client.chat.completions.create(
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant"
+        )
+        # Return AI response
+        return response.choices[0].message.content
+    except Exception as e:
+        if "authentication" in str(e).lower() or "unauthorized" in str(e).lower():
+            return "⚠️ API Authentication Error: Please check your GROQ_API_KEY configuration."
+        else:
+            return f"⚠️ API Error: {str(e)}"
