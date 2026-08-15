@@ -6,3 +6,4 @@ langchain-huggingface
 pymupdf
 faiss-cpu
 python-dotenv
+sentence-transformers
