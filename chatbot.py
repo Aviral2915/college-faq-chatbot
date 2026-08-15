@@ -1,73 +1,59 @@
 import os
-import pickle
-import faiss
 from dotenv import load_dotenv
-from groq import Groq
-from sentence_transformers import SentenceTransformer
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
-# Load environment variables
 load_dotenv()
 
-# Get API key
-api_key = os.getenv("GROQ_API_KEY")
-if not api_key:
-    raise ValueError("GROQ_API_KEY not found in environment variables. Please set it in your .env file or deployment environment.")
+def get_rag_chain():
+    """Loads FAISS vector index and builds a LangChain RAG pipeline."""
+    if not os.path.exists("faiss_index"):
+        return None
 
-# Initialize Groq client
-client = Groq(api_key=api_key)
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise ValueError("GROQ_API_KEY environment variable is not set. Please set `GROQ_API_KEY=your_key` in a `.env` file.")
 
-# Load embedding model
-model = SentenceTransformer("all-MiniLM-L6-v2")
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    vector_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+    retriever = vector_db.as_retriever(search_kwargs={"k": 3})
 
-# Load FAISS index
-index = faiss.read_index("faiss_index/index.faiss")
+    llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0.2, groq_api_key=api_key)
 
-# Load stored texts
-with open("faiss_index/texts.pkl", "rb") as f:
-    texts = pickle.load(f)
-
-
-def ask_question(query):
-
-    # Convert query to embedding
-    query_vector = model.encode([query])
-
-    # Search similar documents
-    distances, indices = index.search(query_vector, k=2)
-
-    # Retrieve context
-    context = ""
-    for i in indices[0]:
-        if i < len(texts):
-            context += texts[i] + "\n"
-
-    # Create prompt
-    prompt = f"""
+    prompt = ChatPromptTemplate.from_template("""
 You are an AI assistant for BMS College of Engineering (BMSCE).
-
-Use the provided context if relevant to answer the question. Always refer to the institution as "BMS College of Engineering" or "BMSCE" - never as Bangalore Medical College or any other institution.
+Answer the student's question accurately using only the context provided.
+Always refer to the institution as "BMS College of Engineering" or "BMSCE".
 
 Context:
 {context}
 
 Question:
-{query}
+{question}
 
-Answer clearly for a student, ensuring all references to the college are accurate.
-"""
+Answer:
+""")
 
-    # Call Groq API
+    # LangChain LCEL RAG Chain
+    chain = (
+        {"context": retriever | (lambda docs: "\n\n".join(d.page_content for d in docs)), "question": lambda x: x}
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
+    return chain
+
+def ask_question(query: str) -> str:
+    """Invokes the RAG chain to answer a query."""
     try:
-        response = client.chat.completions.create(
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.1-8b-instant"
-        )
-        # Return AI response
-        return response.choices[0].message.content
+        chain = get_rag_chain()
+        if not chain:
+            return "[MISSING INDEX] Vector index missing. Please upload documents or run vector_store.py."
+        return chain.invoke(query)
+    except ValueError as ve:
+        return f"[CONFIG ERROR] {str(ve)}"
     except Exception as e:
-        if "authentication" in str(e).lower() or "unauthorized" in str(e).lower():
-            return "⚠️ API Authentication Error: Please check your GROQ_API_KEY configuration."
-        else:
-            return f"⚠️ API Error: {str(e)}"
+        return f"[ERROR] {str(e)}"
